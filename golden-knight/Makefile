@@ -9,10 +9,16 @@ $(BUILD)/knight: main.c | $(BUILD)
 $(BUILD):
 	mkdir -p $@
 
+$(BUILD)/sound: sound.c song.h | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+play: $(BUILD)/sound
+	./$(BUILD)/sound | pacat --raw --format=s16le --rate=44100 --channels=1
+
 run: $(BUILD)/knight
 	./$(BUILD)/knight
 
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: run clean
+.PHONY: play run clean

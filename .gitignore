@@ -4,3 +4,5 @@ build/
 # safety nets
 *.o
 a.out
+*.mid
+*.swp

@@ -7,7 +7,7 @@
 #define HORIZON 40
 
 #define SUN_X 85
-#define SUN_Y 34
+#define SUN_Y (34 + T * 0.15f)
 #define SUN_R 6
 
 #define KX 40
@@ -168,7 +168,15 @@ int main(void) {
 
 		float vx = (x - W/2.0f) / (W/2.0f);
 		float vy = (y - H/2.0f) / (H/2.0f);
-		float v  = (1 - 0.25 * (vx*vx + vy*vy)) * fminf(T / 3, 1);
+		float vignette = 1 - 0.25f * (vx * vx + vy * vy);
+		float fade_in = fminf(T / 3, 1);
+		float fade_out = fminf((FRAMES / FPS - T) / 3, 1);
+
+		float above = (HORIZON - SUN_Y + SUN_R) / (2.0f * SUN_R);
+		above = fminf(fmaxf(above, 0), 1);
+		float dusk = 0.4f + 0.6f * above;
+
+		float v = vignette * fade_in * fade_out * dusk;
 		r *= v; g *= v; b *= v;
 
 		if (y < 5 || y > H - 5) {
