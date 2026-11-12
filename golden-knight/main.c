@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <math.h>
+#include <unistd.h>
 
 #define W 120
 #define H 60
@@ -12,6 +13,10 @@
 #define KX 40
 #define KY 22
 
+#define FPS 25
+#define FRAMES (FPS * 60)
+
+static float T;
 unsigned char img[H][W][3];
 
 static int clamp(float v) { return v < 0 ? 0 : v > 255 ? 255 : (int)v; }
@@ -51,7 +56,9 @@ static float capsule(float x, float y, float ax, float ay,
 static float plume(float x, float y) {
     float d = 1e9f;
     for (int i = 0; i < 24; i++) {
-	d = fminf(d, circle(x, y, KX - i * 0.9f, KY - 12 + i * i * 0.055f, 3.5f - i * 0.075f));
+	d = fminf(d, circle(x, y,
+			    KX - i * 0.9f + sinf(T * 3 - i * 0.35f) * i * 0.06,
+			    KY - 12 + i * i * 0.055f, 3.5f - i * 0.075f));
     }
     return d;
 }
@@ -81,85 +88,114 @@ static float knight(float x, float y) {
 }
 
 int main(void) {
-    for (int y = 0; y < H; y++) {
-	for (int x = 0; x < W; x++) {
-	    float r, g, b;
-	    int tip = HORIZON - (int)(hash(x) * 4);
-	    if (y < tip) {
-		float t = (float)y / HORIZON;
-		r = 110 + 145 * t;
-		g = 50 + 150 * t;
-		b = 20 + 60 * t;
+    static char buf[1 << 20];
+    setvbuf(stdout, buf, _IOFBF, sizeof buf);
+    printf("\x1b[2J");
+    printf("\x1b[?25l");
 
-		float dsun = circle(x, y, SUN_X, SUN_Y, SUN_R);
-		if (dsun < 0) {
-		    r = 255; g = 250; b = 220;
+    for (int frame = 0; frame < FRAMES; frame++) {
+	T = (float)frame / FPS;
+	for (int y = 0; y < H; y++) {
+	    for (int x = 0; x < W; x++) {
+		float r, g, b;
+		int sx = x + (int)round(1.5f * sinf(T * 1.5 - x * 0.08));
+		int tip = HORIZON - (int)(hash(sx) * 4);
+		if (y < tip) {
+		    float t = (float)y / HORIZON;
+		    r = 110 + 145 * t;
+		    g = 50 + 150 * t;
+		    b = 20 + 60 * t;
+
+		    float dsun = circle(x, y, SUN_X, SUN_Y, SUN_R);
+		    if (dsun < 0) {
+			r = 255; g = 250; b = 220;
+		    } else {
+			float glow = expf(-(dsun + SUN_R) * 0.12f);
+			r += 120 * glow; g += 110 * glow; b += 50 * glow;
+		    }
 		} else {
-		    float glow = expf(-(dsun + SUN_R) * 0.12f);
-		    r += 120 * glow; g += 110 * glow; b += 50 * glow;
+		    float depth = (float)(y - HORIZON) / (H - HORIZON);
+		    if (depth < 0) depth = 0;
+		    r = 170 - 90 * depth;
+		    g = 115 - 70 * depth;
+		    b = 30 - 20 * depth;
+
+		    int width = 1 + (int)(depth * 3);
+		    float stalk = hash(sx / width + y / 7 * 1000);
+		    float shade = 0.65f + 0.5f * stalk;
+		    shade += 0.15f * (hash(x * 131 + y * 7919) - 0.5f);
+		    float light = expf(-fabsf(x - SUN_X) * 0.06f) * (1 - depth);
+		    r = r * shade + 110 * light;
+		    g = g * shade + 80 * light;
+		    b = b * shade + 20 * light;
 		}
-	    } else {
-		float depth = (float)(y - HORIZON) / (H - HORIZON);
-		if (depth < 0) depth = 0;
-		r = 170 - 90 * depth;
-		g = 115 - 70 * depth;
-		b = 30 - 20 * depth;
+		if (knight(x, y) < 0) {
+		    if (plume(x, y) < 0 && helmet(x, y) >= 0) {
+			r = 20; g = 30; b = 70;
+		    } else {
+			r = 35; g = 55; b = 95;
+		    }
 
-		int width = 1 + (int)(depth * 3);
-		float stalk = hash(x / width + y / 7 * 1000);
-		float shade = 0.65f + 0.5f * stalk;
-		shade += 0.15f * (hash(x * 131 + y * 7919) - 0.5f);
-		float light = expf(-fabsf(x - SUN_X) * 0.06f) * (1 - depth);
-		r = r * shade + 110 * light;
-		g = g * shade + 80 * light;
-		b = b * shade + 20 * light;
-	    }
-	    if (knight(x, y) < 0) {
-		if (plume(x, y) < 0 && helmet(x, y) >= 0) {
-		    r = 20; g = 30; b = 70;
-		} else {
-		    r = 35; g = 55; b = 95;
-		}
+		    float nx = knight(x + 1, y) - knight(x - 1, y);
+		    float ny = knight(x, y + 1) - knight(x, y - 1);
+		    float len = sqrtf(nx * nx + ny * ny) + 1e-6f;
+		    nx /= len; ny /= len;
+		    float light = nx * 0.9 + ny * (-0.4);
+		    if (light < 0) light = 0;
+		    r += 70 * light; g += 90 * light; b += 110 * light;
 
-		float nx = knight(x + 1, y) - knight(x - 1, y);
-		float ny = knight(x, y + 1) - knight(x, y - 1);
-		float len = sqrtf(nx * nx + ny * ny) + 1e-6f;
-		nx /= len; ny /= len;
-		float light = nx * 0.9 + ny * (-0.4);
-		if (light < 0) light = 0;
-		r += 70 * light; g += 90 * light; b += 110 * light;
+		    if (fabsf(circle(x, y, KX - 6, KY + 50, 25) + 5) < 0.6) {
+			r *= 0.5; g *= 0.5; b *= 0.5;
+		    }
 
-		if (fabsf(circle(x, y, 18, 72, 25) + 5) < 0.6) {
-		    r *= 0.5; g *= 0.5; b *= 0.5;
-		}
-
-		if (box(x, y, KX + 9, KY + 7, 7, 0.6) < 0) {
-		    r = 5; g = 8; b = 15;
-		}
-
-		for (int i = 0; i < 3; i++) {
-		    if (circle(x, y, KX + 8 + i * 2.5f, KY + 13, 0.7f) < 0) {
+		    if (box(x, y, KX + 9, KY + 7, 7, 0.6) < 0) {
 			r = 5; g = 8; b = 15;
+		    }
+
+		    for (int i = 0; i < 3; i++) {
+			if (circle(x, y, KX + 8 + i * 2.5f, KY + 13, 0.7f) < 0) {
+			    r = 5; g = 8; b = 15;
+			}
+		    }
+
+		    if (knight(x + 1.5f, y - 0.5f) >= 0) {
+			r = 255; g = 175; b = 80;
 		    }
 		}
 
-		if (knight(x + 1.5f, y - 0.5f) >= 0) {
-		    r = 255; g = 175; b = 80;
+		float n = hash(x * 7 + y * 1031 + frame * 7919) - 0.5;
+		r += 6 * n; g += 6 * n; b += 6 * n;
+
+		float vx = (x - W/2.0f) / (W/2.0f);
+		float vy = (y - H/2.0f) / (H/2.0f);
+		float v  = (1 - 0.25 * (vx*vx + vy*vy)) * fminf(T / 3, 1);
+		r *= v; g *= v; b *= v;
+
+		if (y < 5 || y > H - 5) {
+		    r = 0; g = 0; b = 0;
 		}
+
+		put(x, y, r, g, b);
 	    }
-	    put(x, y, r, g, b);
 	}
+
+	printf("\x1b[H");
+	for (int y = 0; y < H; y += 2) {
+	    for (int x = 0; x < W; x++) {
+		unsigned char *top = img[y][x], *bot = img[y + 1][x];
+		printf("\x1b[38;2;%d;%d;%dm"
+		       "\x1b[48;2;%d;%d;%dm"
+		       "\xe2\x96\x80",
+		       top[0], top[1], top[2], bot[0], bot[1], bot[2]);
+	    }
+	    printf("\x1b[0m\n");
+	}
+
+	fflush(stdout);
+	usleep(1000000 / FPS);
     }
 
-    for (int y = 0; y < H; y += 2) {
-	for (int x = 0; x < W; x++) {
-	    unsigned char *top = img[y][x], *bot = img[y + 1][x];
-	    printf("\x1b[38;2;%d;%d;%dm"
-		   "\x1b[48;2;%d;%d;%dm"
-		   "\xe2\x96\x80",
-		   top[0], top[1], top[2], bot[0], bot[1], bot[2]);
-	}
-	printf("\x1b[0m\n");
-    }
+    printf("\x1b[0m\x1b[?25h");
+    fflush(stdout);
     return 0;
 }
