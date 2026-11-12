@@ -1,7 +1,6 @@
-# object files
+# all build output goes here
+build/
+
+# safety nets
 *.o
-
-# default linker output
 a.out
-
-knight
