@@ -30,13 +30,17 @@ struct timeval32 {
     int nsec;
 };
 
-__attribute__((unused)) static double now(void) {
+static int start_sec;
+
+__attribute__((unused)) static float elapsed(void) {
     struct timeval32 t;
     sys3(SYS_CLOCK_GETTIME, 1, (int)&t, 0);
-    return t.sec + t.nsec / 1e9;
+    if (!start_sec)
+	start_sec = t.sec;
+    return (t.sec - start_sec) + t.nsec * 1e-9f;
 }
 
-__attribute__((unused)) static void sleep_for(double seconds) {
+__attribute__((unused)) static void sleep_for(float seconds) {
     struct timeval32 t;
     t.sec = (int)seconds;
     t.nsec = (int)((seconds - t.sec) * 1e9);
@@ -54,7 +58,9 @@ __attribute__((unused)) static float ex2(float x) {
 }
 
 __attribute__((unused)) static float ex(float x) {
-    return ex2(x * 1.44269504f);
+    float r;
+    asm ("fldl2e\n\t" "fmulp %%st, %%st(1)" : "=t"(r) : "0"(x));
+    return ex2(r);
 }
 
 int main(void);

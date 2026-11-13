@@ -1,7 +1,7 @@
 # golden-knight: everything we compile goes into build/
 CC     = gcc
 CFLAGS = -Wall -m32 -Os -ffast-math -mfpmath=387 -fno-pic -fno-pie -no-pie -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-stack-protector -fno-ident -ffunction-sections -fdata-sections -fomit-frame-pointer
-LDFLAGS = -nostdlib -static -Wl,--gc-sections
+LDFLAGS = -nostdlib -static -s -Wl,--gc-sections,--build-id=none,-z,norelro,-N,--no-warn-rwx-segments
 BUILD  = build
 
 $(BUILD)/knight: main.c sound.c sys.h song.h | $(BUILD)

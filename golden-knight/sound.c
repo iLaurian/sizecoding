@@ -74,17 +74,17 @@ static float bow_step(Bow *b)
     if (b->f == 0) return 0;
 
     float sec = (float)b->t / RATE;
-    float vib = 1 + 0.004f * sinf(sec * 2 * M_PI * 5.5f);
+    float vib = 1 + 0.00390625f * sinf(sec * 2 * 3.14159265f * 5.5f);
 
     b->ph1 += b->f * vib / RATE;
     b->ph1 -= (int)b->ph1;
-    b->ph2 += b->f * vib * 1.004f / RATE;
+    b->ph2 += b->f * vib * 1.00390625f / RATE;
     b->ph2 -= (int)b->ph2;
     float saw = (b->ph1 * 2 - 1) + (b->ph2 * 2 - 1);
 
-    b->lp += (saw - b->lp) * 0.08f;
+    b->lp += (saw - b->lp) * 0.078125f;
 
-    float env = fminf(sec / 0.12f, 1);
+    float env = fminf(sec / 0.125f, 1);
     if (b->t > b->hold)
         env *= ex(-(float)(b->t - b->hold) / (0.25f * RATE));
 
@@ -126,7 +126,7 @@ static float music_sample(void) {
 	p += string_step(&str[v]);
     for (int v = 0; v < BOWS; v++)
 	b += bow_step(&bow[v]);
-    return 0.19f * p + 0.06f * b;
+    return 0.1875f * p + 0.0625f * b;
 }
 
 #ifndef NO_MAIN

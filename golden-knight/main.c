@@ -9,7 +9,7 @@
 #define HORIZON 40
 
 #define SUN_X 85
-#define SUN_Y (34 + T * 0.15f)
+#define SUN_Y (34 + T * 0.15625f)
 #define SUN_R 6
 
 #define KX 40
@@ -21,7 +21,7 @@
 #define FRAMES (FPS * 60)
 #endif
 
-#define AV_DELAY 0.10f
+#define AV_DELAY 0.09375f
 #define QUANT    4
 
 static float T;
@@ -95,11 +95,11 @@ static float capsule(float x, float y, float ax, float ay,
 }
 
 static float plume(float x, float y) {
-    float d = 1e9f;
+    float d = 1024.0f;
     for (int i = 0; i < 24; i++) {
 	d = fminf(d, circle(x, y,
-			    KX - i * 0.9f + sinf(T * 3 - i * 0.35f) * i * 0.06,
-			    KY - 12 + i * i * 0.055f, 3.5f - i * 0.075f));
+			    KX - i * 0.90625f + sinf(T * 3 - i * 0.34375f) * i * 0.0625f,
+			    KY - 12 + i * i * 0.0546875f, 3.5f - i * 0.07421875f));
     }
     return d;
 }
@@ -112,7 +112,7 @@ static float helmet(float x, float y) {
 	capsule(x, y, KX + 15, KY + 10, KX + 11, KY + 19, 1.5f),
 	box(x, y, KX + 12, KY + 10, 2, 7),
     };
-    float d = 1e9f;
+    float d = 1024.0f;
     for (int i = 0; i < 5; i ++)
 	d = fminf(d, components[i]);
     return d;
@@ -194,17 +194,17 @@ int main(void) {
     int player = sys3(SYS_FORK, 0, 0, 0);
     if (player == 0)
 	audio_process();
-    double start = now();
+    float start = elapsed();
 
     put_s("\x1b[?1049h\x1b[0m\x1b[2J");
     put_s("\x1b[?25l");
     __builtin_memset(prev, 255, sizeof prev);
 
     for (int frame = 0; frame < FRAMES; ) {
-	double t = now() - start - AV_DELAY;
+	float t = elapsed() - start - AV_DELAY;
 	int want = t < 0 ? 0 : (int)(t * FPS);
 	if (want < frame) {
-	    sleep_for(frame / (double)FPS - t);
+	    sleep_for(frame / (float)FPS - t);
 	    continue;
 	}
 	frame = want;
@@ -214,7 +214,7 @@ int main(void) {
 	for (int y = 0; y < H; y++) {
 	    for (int x = 0; x < W; x++) {
 		float r, g, b;
-		int sx = x + (int)__builtin_lrintf(1.5f * sinf(T * 1.5f - x * 0.08f));
+		int sx = x + (int)__builtin_lrintf(1.5f * sinf(T * 1.5f - x * 0.078125f));
 		int tip = HORIZON - (int)(hash(sx) * 4);
 		if (y < tip) {
 		    float t = (float)y / HORIZON;
@@ -226,7 +226,7 @@ int main(void) {
 		    if (dsun < 0) {
 			r = 255; g = 250; b = 220;
 		    } else {
-			float glow = ex(-(dsun + SUN_R) * 0.12f);
+			float glow = ex(-(dsun + SUN_R) * 0.125f);
 			r += 120 * glow; g += 110 * glow; b += 50 * glow;
 		    }
 		} else {
@@ -238,9 +238,9 @@ int main(void) {
 
 		    int width = 1 + (int)(depth * 3);
 		    float stalk = hash(sx / width + y / 7 * 1000);
-		    float shade = 0.65f + 0.5f * stalk;
-		    shade += 0.15f * (hash(x * 131 + y * 7919) - 0.5f);
-		    float light = ex(-fabsf(x - SUN_X) * 0.06f) * (1 - depth);
+		    float shade = 0.65625f + 0.5f * stalk;
+		    shade += 0.15625f * (hash(x * 131 + y * 7919) - 0.5f);
+		    float light = ex(-fabsf(x - SUN_X) * 0.0625f) * (1 - depth);
 		    r = r * shade + 110 * light;
 		    g = g * shade + 80 * light;
 		    b = b * shade + 20 * light;
@@ -254,22 +254,22 @@ int main(void) {
 
 		    float nx = knight(x + 1, y) - knight(x - 1, y);
 		    float ny = knight(x, y + 1) - knight(x, y - 1);
-		    float len = sqrtf(nx * nx + ny * ny) + 1e-6f;
+		    float len = sqrtf(nx * nx + ny * ny) + 0x1p-20f;
 		    nx /= len; ny /= len;
-		    float light = nx * 0.9 + ny * (-0.4);
+		    float light = nx * 0.90625f + ny * (-0.40625f);
 		    if (light < 0) light = 0;
 		    r += 70 * light; g += 90 * light; b += 110 * light;
 
-		    if (fabsf(circle(x, y, KX - 6, KY + 50, 25) + 5) < 0.6) {
+		    if (fabsf(circle(x, y, KX - 6, KY + 50, 25) + 5) < 0.625f) {
 			r *= 0.5; g *= 0.5; b *= 0.5;
 		    }
 
-		    if (box(x, y, KX + 9, KY + 7, 7, 0.6) < 0) {
+		    if (box(x, y, KX + 9, KY + 7, 7, 0.625f) < 0) {
 			r = 5; g = 8; b = 15;
 		    }
 
 		    for (int i = 0; i < 3; i++) {
-			if (circle(x, y, KX + 8 + i * 2.5f, KY + 13, 0.7f) < 0) {
+			if (circle(x, y, KX + 8 + i * 2.5f, KY + 13, 0.6875f) < 0) {
 			    r = 5; g = 8; b = 15;
 			}
 		    }
@@ -290,7 +290,7 @@ int main(void) {
 
 		float above = (HORIZON - SUN_Y + SUN_R) / (2.0f * SUN_R);
 		above = fminf(fmaxf(above, 0), 1);
-		float dusk = 0.4f + 0.6f * above;
+		float dusk = 0.40625f + 0.59375f * above;
 
 		float v = vignette * fade_in * fade_out * dusk;
 		r *= v; g *= v; b *= v;
