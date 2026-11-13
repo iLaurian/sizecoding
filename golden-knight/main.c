@@ -288,3 +288,11 @@ int main(void) {
     waitpid(player, NULL, 0);           // let the music finish
     return 0;
 }
+
+__attribute__((force_align_arg_pointer, noreturn))
+void _start(void)
+{
+    int code = main();
+    asm volatile ("int $0x80" : : "a"(1), "b"(code));
+    __builtin_unreachable();
+}
