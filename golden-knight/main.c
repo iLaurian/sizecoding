@@ -23,14 +23,15 @@
 #define FPS 25
 #define SPF (RATE / FPS)
 #ifndef FRAMES
-#define FRAMES (SONG_STEPS * STEP / SPF)
+#define FRAMES (FPS * 60)            // one minute of film and music
 #endif
 
 #define SKIP     (RATE * 5 / 4)  // start the music 1.25 s into the song
 #define AV_DELAY 0.10f           // seconds between writing sound and hearing it
 #define QUANT    4               // round colours to steps of 4
 #ifndef AUDIO_CMD
-#define AUDIO_CMD "pacat --raw --format=s16le --rate=44100 --channels=1 --latency-msec=100"
+// #define AUDIO_CMD "pacat --raw --format=s16le --rate=44100 --channels=1 --latency-msec=100" // for Linux
+#define AUDIO_CMD "ffplay.exe -nodisp -autoexit -loglevel quiet -f s16le -ar 44100 -ch_layout mono -i - >/dev/null 2>&1" // for WSL
 #endif
 
 static float T;
@@ -157,6 +158,7 @@ static void draw(void) {
 	    printf("\xe2\x96\x80");
 	}
     }
+    printf("\x1b[0m");                  // back to the terminal's own colours
     memcpy(prev, img, sizeof img);
     fflush(stdout);
 }
@@ -169,7 +171,7 @@ int main(void) {
 
     static char buf[1 << 20];
     setvbuf(stdout, buf, _IOFBF, sizeof buf);
-    printf("\x1b[2J");
+    printf("\x1b[?1049h\x1b[0m\x1b[2J");  // switch to a fresh, empty screen
     printf("\x1b[?25l");
     memset(prev, 255, sizeof prev);          // force the first frame to draw fully
 
@@ -281,7 +283,7 @@ int main(void) {
 	frame++;
     }
 
-    printf("\x1b[0m\x1b[?25h\x1b[%d;1H\n", H / 2 + 1);
+    printf("\x1b[0m\x1b[?25h\x1b[?1049l");  // show the cursor, back to the normal screen
     fflush(stdout);
     waitpid(player, NULL, 0);           // let the music finish
     return 0;
