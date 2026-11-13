@@ -17,6 +17,9 @@ play: $(BUILD)/sound
 	./$(BUILD)/sound | pacat --raw --format=s16le --rate=44100 --channels=1
 
 run: $(BUILD)/knight
+	./$(BUILD)/knight | aplay -q -f S16_LE -r 44100 -c 1 >/dev/null 2>&1
+
+run-wsl: $(BUILD)/knight
 	./$(BUILD)/knight | ffplay.exe -nodisp -autoexit -loglevel quiet -f s16le -ar 44100 -ch_layout mono -i - >/dev/null 2>&1
 
 size: $(BUILD)/knight
@@ -28,4 +31,4 @@ size: $(BUILD)/knight
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: play run clean
+.PHONY: play run run-wsl clean
