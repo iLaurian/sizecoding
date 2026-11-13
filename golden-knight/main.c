@@ -1,10 +1,5 @@
-#define _GNU_SOURCE
-#include <stdio.h>
 #include <math.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
-#include <sys/wait.h>
+#include "sys.h"
 
 #define NO_MAIN
 #include "sound.c"
@@ -23,20 +18,47 @@
 #define FPS 25
 #define SPF (RATE / FPS)
 #ifndef FRAMES
-#define FRAMES (FPS * 60)            // one minute of film and music
+#define FRAMES (FPS * 60)
 #endif
 
-#define SKIP     (RATE * 5 / 4)  // start the music 1.25 s into the song
-#define AV_DELAY 0.10f           // seconds between writing sound and hearing it
-#define QUANT    4               // round colours to steps of 4
-#ifndef AUDIO_CMD
-// #define AUDIO_CMD "pacat --raw --format=s16le --rate=44100 --channels=1 --latency-msec=100" // for Linux
-#define AUDIO_CMD "ffplay.exe -nodisp -autoexit -loglevel quiet -f s16le -ar 44100 -ch_layout mono -i - >/dev/null 2>&1" // for WSL
-#endif
+#define AV_DELAY 0.10f
+#define QUANT    4
 
 static float T;
 unsigned char img[H][W][3];
-static unsigned char prev[H][W][3];    // what is on screen right now
+static unsigned char prev[H][W][3];
+
+static char out[1 << 20];
+static int out_len;
+
+static void put_c(char c) {
+    out[out_len++] = c;
+}
+
+static void put_s(const char *s) {
+    while (*s)
+	put_c(*s++);
+}
+
+static void put_num(int v) {
+    if (v >= 10)
+	put_num(v / 10);
+    put_c('0' + v % 10);
+}
+
+static void put_rgb(int c) {
+    put_num(c >> 16);
+    put_c(';');
+    put_num(c >> 8 & 255);
+    put_c(';');
+    put_num(c & 255);
+}
+
+
+static void flush_out(void) {
+    write_all(2, out, out_len);
+    out_len = 0;
+}
 
 static int clamp(float v) { return v < 0 ? 0 : v > 255 ? 255 : (int)v; }
 
@@ -106,91 +128,93 @@ static float knight(float x, float y) {
     return fminf(fminf(helmet(x, y), plume(x, y)), body(x, y));
 }
 
-// ---------------- sound: runs in its own process ----------------
 static void audio_process(void) {
-    FILE *audio = popen(AUDIO_CMD, "w");
-    for (long k = 0; k < SKIP; k++)          // jump over part of the silent intro
-	music_sample();
-    for (long k = 0; k < (long)FRAMES * SPF; k++) {
-	float t = (float)k / RATE;
-	float fade = fminf(fmaxf((FRAMES / FPS - t) / 3, 0), 1);
-	float s = fminf(fmaxf(music_sample() * fade, -1), 1);
-	short v = (short)(s * 32767);
-	fwrite(&v, 2, 1, audio);              // blocks while the player is full
+    short chunk[SPF];
+    for (long k = 0; k < (long)FRAMES * SPF;) {
+	for (int i = 0; i < SPF; i ++, k++) {
+	    float t = (float)k / RATE;
+	    float fade = fminf(fmaxf((FRAMES / FPS - t) / 3, 0), 1);
+	    float s = fminf(fmaxf(music_sample() * fade, -1), 1);
+	    chunk[i] = (short)(s * 32767);
+	}
+	write_all(1, (char*)chunk, sizeof chunk);
     }
-    pclose(audio);
-    _exit(0);
+    sys3(SYS_EXIT, 0, 0, 0);
 }
 
-// ---------------- picture: helpers ----------------
-static double now(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec + ts.tv_nsec / 1e9;
-}
-
-static int colour(unsigned char *p) {     // pack a pixel into one number, rounded
+static int colour(unsigned char *p) {
     return p[0] / QUANT * QUANT << 16 | p[1] / QUANT * QUANT << 8 | p[2] / QUANT * QUANT;
 }
 
-// print only the cells that changed since the last frame
 static void draw(void) {
     for (int y = 0; y < H; y += 2) {
 	int fg = -1, bg = -1, here = 0;
 	for (int x = 0; x < W; x++) {
 	    int t = colour(img[y][x]), b = colour(img[y + 1][x]);
 	    if (t == colour(prev[y][x]) && b == colour(prev[y + 1][x])) {
-		here = 0;                          // unchanged: skip it
+		here = 0;
 		continue;
 	    }
-	    if (!here)                            // jump the cursor to this cell
-		printf("\x1b[%d;%dH", y / 2 + 1, x + 1);
+	    if (!here) {
+		put_s("\x1b[");
+		put_num(y / 2 + 1);
+		put_c(';');
+		put_num(x + 1);
+		put_c('H');
+	    }
 	    here = 1;
-	    if (t != fg && b != bg)
-		printf("\x1b[38;2;%d;%d;%d;48;2;%d;%d;%dm",
-		       t >> 16, t >> 8 & 255, t & 255, b >> 16, b >> 8 & 255, b & 255);
-	    else if (t != fg)
-		printf("\x1b[38;2;%d;%d;%dm", t >> 16, t >> 8 & 255, t & 255);
-	    else if (b != bg)
-		printf("\x1b[48;2;%d;%d;%dm", b >> 16, b >> 8 & 255, b & 255);
+	    if (t != fg && b != bg) {
+		put_s("\x1b[38;2;");
+		put_rgb(t);
+		put_s(";48;2;");
+		put_rgb(b);
+		put_c('m');
+	    }
+	    else if (t != fg) {
+		put_s("\x1b[38;2;");
+		put_rgb(t);
+		put_c('m');
+	    }
+	    else if (b != bg) {
+		put_s("\x1b[48;2;");
+		put_rgb(b);
+		put_c('m');
+	    }
 	    fg = t;
 	    bg = b;
-	    printf("\xe2\x96\x80");
+	    put_s("\xe2\x96\x80");
 	}
     }
-    printf("\x1b[0m");                  // back to the terminal's own colours
-    memcpy(prev, img, sizeof img);
-    fflush(stdout);
+    put_s("\x1b[0m");
+    __builtin_memcpy(prev, img, sizeof img);
+    flush_out();
 }
 
 int main(void) {
-    pid_t player = fork();
+    int player = sys3(SYS_FORK, 0, 0, 0);
     if (player == 0)
-	audio_process();                       // the child plays the music and exits
+	audio_process();
     double start = now();
 
-    static char buf[1 << 20];
-    setvbuf(stdout, buf, _IOFBF, sizeof buf);
-    printf("\x1b[?1049h\x1b[0m\x1b[2J");  // switch to a fresh, empty screen
-    printf("\x1b[?25l");
-    memset(prev, 255, sizeof prev);          // force the first frame to draw fully
+    put_s("\x1b[?1049h\x1b[0m\x1b[2J");
+    put_s("\x1b[?25l");
+    __builtin_memset(prev, 255, sizeof prev);
 
     for (int frame = 0; frame < FRAMES; ) {
-	// which frame should be on screen now? (the sound is AV_DELAY behind)
 	double t = now() - start - AV_DELAY;
 	int want = t < 0 ? 0 : (int)(t * FPS);
-	if (want < frame) {                     // too early: sleep until it's due
-	    usleep((useconds_t)((frame / (double)FPS - t) * 1e6));
+	if (want < frame) {
+	    sleep_for(frame / (double)FPS - t);
 	    continue;
 	}
-	frame = want;                           // too late: skip ahead, never fall behind
+	frame = want;
 	if (frame >= FRAMES)
 	    break;
 	T = (float)frame / FPS;
 	for (int y = 0; y < H; y++) {
 	    for (int x = 0; x < W; x++) {
 		float r, g, b;
-		int sx = x + (int)round(1.5f * sinf(T * 1.5 - x * 0.08));
+		int sx = x + (int)__builtin_lrintf(1.5f * sinf(T * 1.5f - x * 0.08f));
 		int tip = HORIZON - (int)(hash(sx) * 4);
 		if (y < tip) {
 		    float t = (float)y / HORIZON;
@@ -202,7 +226,7 @@ int main(void) {
 		    if (dsun < 0) {
 			r = 255; g = 250; b = 220;
 		    } else {
-			float glow = expf(-(dsun + SUN_R) * 0.12f);
+			float glow = ex(-(dsun + SUN_R) * 0.12f);
 			r += 120 * glow; g += 110 * glow; b += 50 * glow;
 		    }
 		} else {
@@ -216,7 +240,7 @@ int main(void) {
 		    float stalk = hash(sx / width + y / 7 * 1000);
 		    float shade = 0.65f + 0.5f * stalk;
 		    shade += 0.15f * (hash(x * 131 + y * 7919) - 0.5f);
-		    float light = expf(-fabsf(x - SUN_X) * 0.06f) * (1 - depth);
+		    float light = ex(-fabsf(x - SUN_X) * 0.06f) * (1 - depth);
 		    r = r * shade + 110 * light;
 		    g = g * shade + 80 * light;
 		    b = b * shade + 20 * light;
@@ -283,16 +307,8 @@ int main(void) {
 	frame++;
     }
 
-    printf("\x1b[0m\x1b[?25h\x1b[?1049l");  // show the cursor, back to the normal screen
-    fflush(stdout);
-    waitpid(player, NULL, 0);           // let the music finish
+    put_s("\x1b[0m\x1b[?25h\x1b[?1049l");
+    flush_out();
+    sys3(SYS_WAITPID, player, 0, 0);
     return 0;
-}
-
-__attribute__((force_align_arg_pointer, noreturn))
-void _start(void)
-{
-    int code = main();
-    asm volatile ("int $0x80" : : "a"(1), "b"(code));
-    __builtin_unreachable();
 }

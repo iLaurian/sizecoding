@@ -1,37 +1,34 @@
-#include <stdio.h>
 #include <math.h>
+#include "sys.h"
 #include "song.h"
 
-#define RATE   44100            // samples per second
-#define VOICES 16               // how many strings can ring
-#define BOWS   8                // how many bowed notes can sound
-#define MAXLEN 2048             // longest string (lowest note)
+#define RATE   44100
+#define VOICES 16
+#define BOWS   8
+#define MAXLEN 2048
 #define STEP (RATE * 60 / (SONG_BPM * 4))
 
 typedef struct {
-    float buf[MAXLEN];          // the string's vibration
-    int len;                    // buffer length -> pitch
-    int pos;                    // current position in the loop
+    float buf[MAXLEN];
+    int len;
+    int pos;
 } String;
 
 static String str[VOICES];
 static int next_voice;
 static unsigned seed = 1;
 
-// random number between -1 and +1
 static float noise(void)
 {
     seed = seed * 1103515245 + 12345;
     return ((seed >> 16) & 0x7fff) / 16384.0f - 1;
 }
 
-// MIDI note number -> frequency in Hz (69 = A = 440 Hz)
 static float freq(int note)
 {
-    return 440 * powf(2, (note - 69) / 12.0f);
+    return 440 * ex2((note - 69) / 12.0f);
 }
 
-// snap the next free string: fill it with noise
 static void pluck(int note)
 {
     String *s = &str[next_voice];
@@ -42,7 +39,6 @@ static void pluck(int note)
         s->buf[i] = noise();
 }
 
-// one sample from one string, then smooth that spot (Karplus-Strong)
 static float string_step(String *s)
 {
     if (s->len == 0) return 0;
@@ -54,17 +50,16 @@ static float string_step(String *s)
 }
 
 typedef struct {
-    float f;                    // frequency in Hz; 0 = this bow is free
-    float ph1, ph2;             // the two sawtooth phases (0..1)
-    float lp;                   // the smoothing filter's memory
-    int t;                      // age of the note, in samples
-    int hold;                   // how long to hold, in samples
+    float f;
+    float ph1, ph2;
+    float lp;
+    int t;
+    int hold;
 } Bow;
 
 static Bow bow[BOWS];
 static int next_bow;
 
-// start a bowed note on the next voice, held for `steps` 16th notes
 static void bow_start(int note, int steps)
 {
     Bow *b = &bow[next_bow];
@@ -74,30 +69,26 @@ static void bow_start(int note, int steps)
     b->hold = steps * STEP;
 }
 
-// one sample from one bowed note
 static float bow_step(Bow *b)
 {
-    if (b->f == 0) return 0;                            // free voice: silent
+    if (b->f == 0) return 0;
 
-    float sec = (float)b->t / RATE;                     // note age in seconds
-    float vib = 1 + 0.004f * sinf(sec * 2 * M_PI * 5.5f);   // vibrato: +-0.4%
+    float sec = (float)b->t / RATE;
+    float vib = 1 + 0.004f * sinf(sec * 2 * M_PI * 5.5f);
 
-    // two sawtooths, the second 0.4% sharper -> a section, not a soloist
     b->ph1 += b->f * vib / RATE;
-    b->ph1 -= floorf(b->ph1);
+    b->ph1 -= (int)b->ph1;
     b->ph2 += b->f * vib * 1.004f / RATE;
-    b->ph2 -= floorf(b->ph2);
+    b->ph2 -= (int)b->ph2;
     float saw = (b->ph1 * 2 - 1) + (b->ph2 * 2 - 1);
 
-    // soften the buzz: move only 8% of the way toward the new value
     b->lp += (saw - b->lp) * 0.08f;
 
-    // envelope: swell in over 0.12 s, hold, then fade out
     float env = fminf(sec / 0.12f, 1);
     if (b->t > b->hold)
-        env *= expf(-(float)(b->t - b->hold) / (0.25f * RATE));
+        env *= ex(-(float)(b->t - b->hold) / (0.25f * RATE));
 
-    if (b->t > b->hold + RATE) b->f = 0;                // 1 s after release: free
+    if (b->t > b->hold + RATE) b->f = 0;
     b->t++;
     return b->lp * env;
 }
@@ -139,19 +130,19 @@ static float music_sample(void) {
 }
 
 #ifndef NO_MAIN
-
-static void out(float s)
-{
-    if (s > 1) s = 1;
-    if (s < -1) s = -1;
-    short v = (short)(s * 32767);
-    fwrite(&v, 2, 1, stdout);
-}
-
 int main(void)
 {
-    for (long k = 0; k < (long)SONG_STEPS * STEP; k++)
-	out(music_sample());
+    static short buf[4096];
+    int n = 0;
+    for (long k = 0; k < (long)SONG_STEPS * STEP; k++) {
+	float s = fminf(fmaxf(music_sample(), -1), 1);
+	buf[n++] = (short)(s * 32767);
+	if (n == 4096) {
+	    write_all(1, buf, sizeof buf);
+	    n = 0;
+	}
+    }
+    write_all(1, buf, n * 2);
     return 0;
 }
 #endif
