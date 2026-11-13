@@ -3,7 +3,7 @@ CC     = gcc
 CFLAGS = -Wall -O2
 BUILD  = build
 
-$(BUILD)/knight: main.c | $(BUILD)
+$(BUILD)/knight: main.c sound.c song.h | $(BUILD)
 	$(CC) $(CFLAGS) -o $@ $< -lm
 
 $(BUILD):

@@ -102,6 +102,44 @@ static float bow_step(Bow *b)
     return b->lp * env;
 }
 
+static int pi, pwaited;
+static int bi, biwaited;
+static int step, in_step;
+
+static float music_sample(void) {
+    if (in_step == 0 && step < SONG_STEPS) {
+	while (pi < (int)sizeof pluck_data && pwaited == pluck_data[pi]) {
+	    if (pluck_data[pi + 1])
+		pluck(pluck_data[pi + 1]);
+	    pi += 2;
+	    pwaited = 0;
+	}
+	pwaited++;
+
+	while (bi < (int)sizeof bow_data && biwaited == bow_data[bi]) {
+	    if (bow_data[bi + 1])
+		bow_start(bow_data[bi + 1], bow_data[bi + 2]);
+	    bi += 3;
+	    biwaited = 0;
+	}
+	biwaited++;
+    }
+
+    if (++in_step == STEP) {
+	in_step = 0;
+	step++;
+    }
+
+    float p = 0, b = 0;
+    for (int v = 0; v < VOICES; v++)
+	p += string_step(&str[v]);
+    for (int v = 0; v < BOWS; v++)
+	b += bow_step(&bow[v]);
+    return 0.19f * p + 0.06f * b;
+}
+
+#ifndef NO_MAIN
+
 static void out(float s)
 {
     if (s > 1) s = 1;
@@ -112,45 +150,8 @@ static void out(float s)
 
 int main(void)
 {
-    int n = sizeof pluck_data;      // plucked notes: (wait, note) pairs
-    int pi = 0;
-    int pwait = pluck_data[0];
-
-    int nb = sizeof bow_data;       // bowed notes: (wait, note, len) triples
-    int bi = 0;
-    int bwait = bow_data[0];
-
-    for (int step = 0; step < SONG_STEPS; step++) {
-	while (pi < n && pwait == 0) {
-	    int note = pluck_data[pi + 1];
-	    if (note != 0)
-		pluck(note);
-	    pi += 2;
-	    if (pi < n)
-		pwait = pluck_data[pi];
-	}
-	pwait--;
-
-	while (bi < nb && bwait == 0) {
-	    int note = bow_data[bi + 1];
-	    int len = bow_data[bi + 2];
-	    if (note != 0)
-		bow_start(note, len);
-	    bi += 3;
-	    if (bi < nb)
-		bwait = bow_data[bi];
-	}
-	bwait--;
-
-	for (int k = 0; k < STEP; k++) {
-	    float p = 0, b = 0;
-	    for (int v = 0; v < VOICES; v++)
-		p += string_step(&str[v]);
-	    for (int v = 0; v < BOWS; v++)
-		b += bow_step(&bow[v]);
-	    out(0.19f * p + 0.06f * b);
-	}
-    }
-
+    for (long k = 0; k < (long)SONG_STEPS * STEP; k++)
+	out(music_sample());
     return 0;
 }
+#endif
